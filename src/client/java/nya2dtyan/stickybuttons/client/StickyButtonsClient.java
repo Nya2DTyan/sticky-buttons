@@ -4,14 +4,13 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.LoadingOverlay;
 import net.minecraft.network.chat.Component;
 import nya2dtyan.stickybuttons.MouseState;
 import nya2dtyan.stickybuttons.StickyLogic;
 
 /**
- * Возвращает поведение старых версий: кнопки мыши, зажатые перед перезагрузкой
- * ресурсов по F3+T, остаются зажатыми и после неё — как автокликер.
+ * <p>Возвращает поведение старых версий: кнопки мыши, зажатые в момент нажатия
+ * F3+T, остаются зажатыми и после перезагрузки ресурсов — как автокликер.
  *
  * <p>Почему это приходится делать заново. В 26.2 и 26.3 {@code MouseHandler.onButton}
  * обновляет {@code isLeftPressed} только когда нет ни экрана, ни оверлея. На время
@@ -20,6 +19,11 @@ import nya2dtyan.stickybuttons.StickyLogic;
  * оверлея вызывает {@code KeyMapping.setAll()} — состояние привязок
  * пересинхронизируется с физическим. Раньше этой пересинхронизации не было,
  * отпускание терялось, и функция продолжала выполняться сама.
+ *
+ * <p>Триггер — строго F3+T ({@link #onF3T}), а не любая перезагрузка ресурсов:
+ * перезагрузка из меню настроек кнопки не зажимает. Момент нажатия ловит
+ * {@code DebugKeysMixin}, поэтому экран загрузки не нужен вовсе — мод работает
+ * и с Remove Reloading Screen (rrls), который этот экран убирает.
  *
  * <p>Две вещи, без которых залипает только одна кнопка:
  * <ol>
@@ -34,15 +38,34 @@ import nya2dtyan.stickybuttons.StickyLogic;
  */
 public final class StickyButtonsClient implements ClientModInitializer {
 
+	private static StickyButtonsClient instance;
+
 	private final StickyLogic logic = new StickyLogic();
 	private int lastMask;
 	private boolean announced;
 
 	@Override
 	public void onInitializeClient() {
+		instance = this;
 		// START, а не END: состояние нужно выставить до того, как Minecraft.tick()
 		// вызовет handleKeybinds и опросит привязки.
 		ClientTickEvents.START_CLIENT_TICK.register(this::onTick);
+	}
+
+	/**
+	 * Нажатие F3+T. Вызывается из {@code DebugKeysMixin} до перезагрузки
+	 * ресурсов: она занимает несколько секунд, за которые игрок успевает
+	 * отпустить мышь, поэтому состояние запоминается именно здесь.
+	 */
+	public static void onF3T() {
+		if (instance == null) {
+			return;
+		}
+		Minecraft client = Minecraft.getInstance();
+		if (client == null) {
+			return;
+		}
+		instance.logic.trigger(physicalButtons(client));
 	}
 
 	private void onTick(Minecraft client) {
@@ -51,10 +74,7 @@ public final class StickyButtonsClient implements ClientModInitializer {
 			return;
 		}
 
-		boolean overlay = client.gui.overlay() instanceof LoadingOverlay;
-		int buttons = physicalButtons(client);
-
-		int mask = logic.tick(overlay, buttons);
+		int mask = logic.tick(physicalButtons(client));
 
 		sync(client.options.keyAttack, StickyLogic.LEFT, mask);
 		sync(client.options.keyUse, StickyLogic.RIGHT, mask);
@@ -111,7 +131,7 @@ public final class StickyButtonsClient implements ClientModInitializer {
 	}
 
 	private void clearState(Minecraft client) {
-		if (lastMask == 0 && !logic.isArmed()) {
+		if (lastMask == 0) {
 			return;
 		}
 		if (client != null) {
