@@ -16,6 +16,12 @@
   "entrypoints": {
     "client": ["nya2dtyan.stickybuttons.client.StickyButtonsClient"]
   },
+  "mixins": [
+    {
+      "config": "stickybuttons.mixins.json",
+      "environment": "client"
+    }
+  ],
   "depends": {
     "fabricloader": ">=0.19.5",
     "minecraft": "${mc_dep}",

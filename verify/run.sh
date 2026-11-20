@@ -37,4 +37,5 @@ javac -nowarn -encoding UTF-8 -cp "${CP}" -d "${OUT}" verify/*.java
 
 # Стенды грузят собранный jar первыми в classpath: если класс есть и в jar,
 # и в исходниках, победит jar — проверяется именно то, что получит игрок.
+java -cp "${JAR}:${OUT}:${CP}" VerifyMixinTarget
 java -cp "${JAR}:${OUT}:${CP}" VerifySticky

@@ -1,11 +1,14 @@
 import nya2dtyan.stickybuttons.StickyLogic;
 
 /**
- * Стенд логики залипания: вызывается на СОБРАННОМ jar через URLClassLoader,
+ * Стенд логики залипания: вызывается на СОБРАННОМ jar через classpath клиента,
  * поэтому проверяет тот байткод, который получит игрок.
  *
  * Сценарии повторяют то, что происходит в игре при F3+T:
- * кнопка зажата → открылся оверлей загрузки → оверлей закрылся.
+ * кнопки зажаты → открылся оверлей загрузки → оверлей закрылся.
+ *
+ * Отдельно проверяются комбинации: ЛКМ+ПКМ, ПКМ+средняя, все три.
+ * Именно комбинации не работали раньше — залипала только одна кнопка.
  */
 public final class VerifySticky {
 	private static int fail = 0;
@@ -19,110 +22,131 @@ public final class VerifySticky {
 		}
 	}
 
+	/** «Сеанс»: нажали указанные кнопки, открыли и закрыли оверлей. */
+	private static StickyLogic cycle(int pressed) {
+		StickyLogic l = new StickyLogic();
+		l.tick(false, pressed);
+		l.tick(true, pressed);
+		return l;
+	}
+
 	public static void main(String[] args) {
 		System.out.println("=== 1. Левая кнопка: зажата → F3+T → отпущена ===");
 		{
 			StickyLogic l = new StickyLogic();
-			// тик до перезагрузки: кнопка нажата
-			ok(l.tick(false, true, false, false) == 0, "до оверлея залипания нет");
-			// оверлей открылся, кнопка всё ещё физически нажата
-			ok((l.tick(true, true, false, false) & StickyLogic.LEFT) == 0, "во время оверлея залипание не выставлено");
+			ok(l.tick(false, StickyLogic.LEFT) == 0, "до оверлея залипания нет");
+			ok(l.tick(true, StickyLogic.LEFT) == 0, "во время оверлея залипание не выставлено");
 			ok(l.isArmed(), "нажатие запомнено");
-			// оверлей закрылся, мышь отпущена — должен включиться автоклик
-			int m = l.tick(false, false, false, false);
-			ok((m & StickyLogic.LEFT) != 0, "после оверлея левая кнопка залипла");
-			ok(l.isStickyLeft(), "состояние залипания выставлено");
-			// держится на следующих тиках
-			ok((l.tick(false, false, false, false) & StickyLogic.LEFT) != 0, "залипание держится следующий тик");
-			ok((l.tick(false, false, false, false) & StickyLogic.LEFT) != 0, "и ещё один");
+			int m = l.tick(false, 0);
+			ok((m & StickyLogic.LEFT) != 0, "после оверлея ЛКМ залипла");
+			ok(l.isSticky(StickyLogic.LEFT), "состояние залипания выставлено");
+			ok((l.tick(false, 0) & StickyLogic.LEFT) != 0, "держится следующий тик");
 		}
 
-		System.out.println("\n=== 2. Снятие залипания повторным нажатием ===");
+		System.out.println("\n=== 2. ЛКМ и ПКМ вместе (основной сценарий жалобы) ===");
 		{
-			StickyLogic l = new StickyLogic();
-			l.tick(false, true, false, false);
-			l.tick(true, true, false, false);
-			l.tick(false, false, false, false);
-			ok(l.isStickyLeft(), "залипание включено");
-			// игрок нажимает кнопку снова — залипание снимается
-			int m = l.tick(false, true, false, false);
-			ok((m & StickyLogic.LEFT) == 0, "нажатие снимает залипание");
-			ok(!l.isStickyLeft(), "состояние сброшено");
-			// отпустил — обычное поведение, без залипания
-			ok((l.tick(false, false, false, false) & StickyLogic.LEFT) == 0, "после снятия залипания нет");
+			StickyLogic l = cycle(StickyLogic.LEFT | StickyLogic.RIGHT);
+			int m = l.tick(false, 0);
+			ok((m & StickyLogic.LEFT) != 0, "ЛКМ залипла");
+			ok((m & StickyLogic.RIGHT) != 0, "ПКМ залипла");
+			ok(l.stickyMask() == (StickyLogic.LEFT | StickyLogic.RIGHT), "обе кнопки в маске");
+			int m2 = l.tick(false, 0);
+			ok((m2 & StickyLogic.LEFT) != 0 && (m2 & StickyLogic.RIGHT) != 0, "обе держатся следующий тик");
 		}
 
-		System.out.println("\n=== 3. Кнопку отпустили ДО перезагрузки — залипания быть не должно ===");
+		System.out.println("\n=== 3. ПКМ + средняя ===");
+		{
+			StickyLogic l = cycle(StickyLogic.RIGHT | StickyLogic.MIDDLE);
+			int m = l.tick(false, 0);
+			ok((m & StickyLogic.RIGHT) != 0, "ПКМ залипла");
+			ok((m & StickyLogic.MIDDLE) != 0, "средняя залипла");
+			ok((m & StickyLogic.LEFT) == 0, "ЛКМ не тронута");
+		}
+
+		System.out.println("\n=== 4. Все три кнопки ===");
+		{
+			StickyLogic l = cycle(StickyLogic.LEFT | StickyLogic.RIGHT | StickyLogic.MIDDLE);
+			int m = l.tick(false, 0);
+			ok(m == (StickyLogic.LEFT | StickyLogic.RIGHT | StickyLogic.MIDDLE), "все три залипли");
+		}
+
+		System.out.println("\n=== 5. Снятие по одной кнопке ===");
+		{
+			StickyLogic l = cycle(StickyLogic.LEFT | StickyLogic.RIGHT);
+			l.tick(false, 0);
+			int m = l.tick(false, StickyLogic.LEFT);
+			ok((m & StickyLogic.LEFT) == 0, "нажатие ЛКМ снимает только её");
+			ok((m & StickyLogic.RIGHT) != 0, "ПКМ остаётся залипшей");
+			int m2 = l.tick(false, 0);
+			ok((m2 & StickyLogic.RIGHT) != 0 && (m2 & StickyLogic.LEFT) == 0, "ЛКМ не залипает снова");
+			ok((l.tick(false, StickyLogic.RIGHT) & StickyLogic.RIGHT) == 0, "нажатие ПКМ снимает её");
+			ok(l.stickyMask() == 0, "маска пуста");
+		}
+
+		System.out.println("\n=== 6. Кнопки отпущены ДО перезагрузки — залипания нет ===");
 		{
 			StickyLogic l = new StickyLogic();
-			l.tick(false, true, false, false);
-			l.tick(false, false, false, false);   // отпустил
-			l.tick(true, false, false, false);    // открылся оверлей, кнопка не нажата
+			l.tick(false, StickyLogic.LEFT | StickyLogic.RIGHT);
+			l.tick(false, 0);
+			l.tick(true, 0);
 			ok(!l.isArmed(), "нечего запоминать");
-			int m = l.tick(false, false, false, false);
-			ok(m == 0, "залипания нет");
+			ok(l.tick(false, 0) == 0, "залипания нет");
 		}
 
-		System.out.println("\n=== 4. Правая кнопка и средняя ===");
+		System.out.println("\n=== 7. Одна отпущена до, другая зажата ===");
 		{
 			StickyLogic l = new StickyLogic();
-			l.tick(false, false, true, false);
-			l.tick(true, false, true, false);
-			ok((l.tick(false, false, false, false) & StickyLogic.RIGHT) != 0, "правая кнопка залипла");
-			ok(l.isStickyRight(), "флаг правой выставлен");
-			// снимаем нажатием правой
-			ok((l.tick(false, false, true, false) & StickyLogic.RIGHT) == 0, "нажатие правой снимает залипание");
-		}
-		{
-			StickyLogic l = new StickyLogic();
-			l.tick(false, false, false, true);
-			l.tick(true, false, false, true);
-			ok((l.tick(false, false, false, false) & StickyLogic.MIDDLE) != 0, "средняя кнопка залипла");
-			ok((l.tick(false, false, false, true) & StickyLogic.MIDDLE) == 0, "нажатие средней снимает залипание");
+			l.tick(false, StickyLogic.LEFT | StickyLogic.RIGHT);
+			l.tick(false, StickyLogic.RIGHT);
+			l.tick(true, StickyLogic.RIGHT);
+			int m = l.tick(false, 0);
+			ok((m & StickyLogic.RIGHT) != 0, "залипла только ПКМ");
+			ok((m & StickyLogic.LEFT) == 0, "ЛКМ не залипла");
 		}
 
-		System.out.println("\n=== 5. Две кнопки одновременно ===");
+		System.out.println("\n=== 8. Оверлей без нажатых кнопок ===");
 		{
 			StickyLogic l = new StickyLogic();
-			l.tick(false, true, true, false);
-			l.tick(true, true, true, false);
-			int m = l.tick(false, false, false, false);
-			ok((m & StickyLogic.LEFT) != 0 && (m & StickyLogic.RIGHT) != 0, "обе кнопки залипли");
-			int m2 = l.tick(false, true, false, false);
-			ok((m2 & StickyLogic.LEFT) == 0 && (m2 & StickyLogic.RIGHT) != 0, "снятие левой не трогает правую");
+			l.tick(false, 0);
+			l.tick(true, 0);
+			ok(l.tick(false, 0) == 0, "ничего не залипает");
 		}
 
-		System.out.println("\n=== 6. Сброс (выход из мира) ===");
+		System.out.println("\n=== 9. Два F3+T подряд ===");
 		{
-			StickyLogic l = new StickyLogic();
-			l.tick(false, true, false, false);
-			l.tick(true, true, false, false);
-			l.tick(false, false, false, false);
-			ok(l.isStickyLeft(), "залипание есть");
+			StickyLogic l = cycle(StickyLogic.LEFT | StickyLogic.RIGHT);
+			l.tick(false, 0);
+			ok(l.stickyMask() == (StickyLogic.LEFT | StickyLogic.RIGHT), "залипли после первой перезагрузки");
+			l.tick(true, 0);
+			int m = l.tick(false, 0);
+			ok(m == (StickyLogic.LEFT | StickyLogic.RIGHT), "после второй обе сохранились");
+		}
+
+		System.out.println("\n=== 10. Сброс (выход из мира) ===");
+		{
+			StickyLogic l = cycle(StickyLogic.LEFT | StickyLogic.RIGHT);
+			l.tick(false, 0);
+			ok(l.stickyMask() != 0, "залипание есть");
 			l.reset();
-			ok(!l.isStickyLeft() && !l.isArmed(), "reset снимает всё");
-			ok(l.tick(false, false, false, false) == 0, "после reset залипания нет");
+			ok(l.stickyMask() == 0 && !l.isArmed(), "reset снимает всё");
+			ok(l.tick(false, 0) == 0, "после reset залипания нет");
 		}
 
-		System.out.println("\n=== 7. Оверлей без нажатой кнопки ===");
+		System.out.println("\n=== 11. release одной кнопки ===");
 		{
-			StickyLogic l = new StickyLogic();
-			l.tick(false, false, false, false);
-			l.tick(true, false, false, false);
-			ok(l.tick(false, false, false, false) == 0, "ничего не залипает");
+			StickyLogic l = cycle(StickyLogic.LEFT | StickyLogic.RIGHT);
+			l.tick(false, 0);
+			l.release(StickyLogic.LEFT);
+			ok(!l.isSticky(StickyLogic.LEFT), "ЛКМ снята");
+			ok(l.isSticky(StickyLogic.RIGHT), "ПКМ осталась");
 		}
 
-		System.out.println("\n=== 8. Два F3+T подряд с зажатой кнопкой ===");
+		System.out.println("\n=== 12. Правая и средняя по отдельности ===");
 		{
-			StickyLogic l = new StickyLogic();
-			l.tick(false, true, false, false);
-			l.tick(true, true, false, false);
-			l.tick(false, false, false, false);
-			ok(l.isStickyLeft(), "залипло после первой перезагрузки");
-			// вторая перезагрузка: кнопка физически не нажата
-			l.tick(true, false, false, false);
-			int m = l.tick(false, false, false, false);
-			ok((m & StickyLogic.LEFT) != 0, "после второй перезагрузки залипание сохранилось");
+			StickyLogic r = cycle(StickyLogic.RIGHT);
+			ok((r.tick(false, 0) & StickyLogic.RIGHT) != 0, "ПКМ залипает одна");
+			StickyLogic md = cycle(StickyLogic.MIDDLE);
+			ok((md.tick(false, 0) & StickyLogic.MIDDLE) != 0, "средняя залипает одна");
 		}
 
 		System.out.println(fail == 0 ? "\nВСЁ ЗЕЛЁНОЕ" : "\nПРОВАЛОВ: " + fail);

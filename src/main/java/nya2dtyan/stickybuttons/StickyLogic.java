@@ -4,23 +4,17 @@ package nya2dtyan.stickybuttons;
  * Логика «залипания» кнопок мыши, отделённая от Minecraft.
  *
  * <p>Зачем отдельный класс: проверять поведение без запуска игры. Стенды из
- * {@code verify/} вызывают {@link #tick} на собранном jar и убеждаются, что
+ * {@code verify/} вызывают {@link #tick} на СОБРАННОМ jar и убеждаются, что
  * зажатие восстанавливается ровно в тех случаях, где это ожидается.
  *
  * <p>Что воспроизводится. В старых версиях при удержании кнопки мыши и
  * перезагрузке ресурсов по F3+T событие отпускания терялось: экран загрузки
  * перехватывал ввод, {@code KeyMapping} оставался в состоянии «нажато», и
- * игрок продолжал копать или ставить блоки без участия рук — эффект
- * автокликера. Сейчас состояние кнопок пересинхронизируется с реальным, и
- * эффект пропал. Класс возвращает его осознанно, по явному желанию игрока.
+ * функция продолжала выполняться сама — эффект автокликера. Сейчас состояние
+ * кнопок пересинхронизируется с реальным, и эффект пропал.
  *
- * <p>Правила:
- * <ul>
- *   <li>кнопка была зажата в момент появления оверлея загрузки — запоминаем;</li>
- *   <li>оверлей закрылся — «зажимаем» соответствующую кнопку заново;</li>
- *   <li>залипание живёт, пока игрок не нажмёт эту кнопку снова: новое нажатие
- *       снимает его, и дальнейший клик работает как обычно.</li>
- * </ul>
+ * <p>Кнопки обрабатываются независимо: ЛКМ, ПКМ и средняя. Каждая может быть
+ * зажата одновременно с другими — например, копать и ставить блоки сразу.
  */
 public final class StickyLogic {
 
@@ -31,92 +25,77 @@ public final class StickyLogic {
 	/** Бит «зажать среднюю кнопку». */
 	public static final int MIDDLE = 1 << 2;
 
+	private static final int ALL = LEFT | RIGHT | MIDDLE;
+
 	private boolean prevOverlay;
-	private boolean prevLeft;
-	private boolean prevRight;
-	private boolean prevMiddle;
 
-	private boolean armedLeft;
-	private boolean armedRight;
-	private boolean armedMiddle;
+	/** Что было зажато в момент открытия оверлея. */
+	private int armed;
 
-	private boolean stickyLeft;
-	private boolean stickyRight;
-	private boolean stickyMiddle;
+	/** Что удерживаем сейчас. */
+	private int sticky;
+
+	/** Состояние кнопок на прошлом тике — чтобы ловить момент нажатия. */
+	private int prevButtons;
 
 	/**
 	 * Один тик клиента.
 	 *
 	 * @param overlayOpen открыт ли оверлей загрузки ресурсов
-	 * @param leftPressed нажата ли левая кнопка мыши по данным игры
-	 * @param rightPressed нажата ли правая кнопка
-	 * @param middlePressed нажата ли средняя кнопка
+	 * @param buttons маска физически зажатых кнопок ({@link #LEFT} / {@link #RIGHT} / {@link #MIDDLE})
 	 * @return маска кнопок, которые нужно удерживать нажатыми
 	 */
-	public int tick(boolean overlayOpen, boolean leftPressed, boolean rightPressed, boolean middlePressed) {
+	public int tick(boolean overlayOpen, int buttons) {
+		buttons &= ALL;
+
 		// 1. Оверлей только что открылся — запоминаем, что было зажато.
 		if (overlayOpen && !prevOverlay) {
-			armedLeft = leftPressed;
-			armedRight = rightPressed;
-			armedMiddle = middlePressed;
+			armed = buttons;
 		}
 
 		// 2. Оверлей закрылся — переносим зажатие в «залипшее» состояние.
+		//    Именно здесь в старых версиях терялось отпускание; теперь оно
+		//    намеренно игнорируется, но только для тех кнопок, что были нажаты.
 		if (!overlayOpen && prevOverlay) {
-			stickyLeft |= armedLeft;
-			stickyRight |= armedRight;
-			stickyMiddle |= armedMiddle;
-			armedLeft = false;
-			armedRight = false;
-			armedMiddle = false;
+			sticky |= armed;
+			armed = 0;
 		}
 
 		// 3. Игрок снова нажал кнопку — залипание снимается, клик идёт как обычно.
-		if (!overlayOpen && !prevOverlay) {
-			if (stickyLeft && leftPressed && !prevLeft) stickyLeft = false;
-			if (stickyRight && rightPressed && !prevRight) stickyRight = false;
-			if (stickyMiddle && middlePressed && !prevMiddle) stickyMiddle = false;
+		if (!overlayOpen) {
+			int freshlyPressed = buttons & ~prevButtons;
+			sticky &= ~freshlyPressed;
 		}
 
 		prevOverlay = overlayOpen;
-		prevLeft = leftPressed;
-		prevRight = rightPressed;
-		prevMiddle = middlePressed;
-
-		int mask = 0;
-		if (stickyLeft) mask |= LEFT;
-		if (stickyRight) mask |= RIGHT;
-		if (stickyMiddle) mask |= MIDDLE;
-		return mask;
+		prevButtons = buttons;
+		return sticky;
 	}
 
-	public boolean isStickyLeft() {
-		return stickyLeft;
-	}
-
-	public boolean isStickyRight() {
-		return stickyRight;
-	}
-
-	public boolean isStickyMiddle() {
-		return stickyMiddle;
+	public boolean isSticky(int bit) {
+		return (sticky & bit) != 0;
 	}
 
 	public boolean isArmed() {
-		return armedLeft || armedRight || armedMiddle;
+		return armed != 0;
 	}
 
-	/** Снять всё залипание (например, при выходе из мира). */
+	/** Текущая маска удерживаемых кнопок. */
+	public int stickyMask() {
+		return sticky;
+	}
+
+	/** Снять всё залипание (выход из мира, открытие экрана). */
 	public void reset() {
 		prevOverlay = false;
-		prevLeft = false;
-		prevRight = false;
-		prevMiddle = false;
-		armedLeft = false;
-		armedRight = false;
-		armedMiddle = false;
-		stickyLeft = false;
-		stickyRight = false;
-		stickyMiddle = false;
+		prevButtons = 0;
+		armed = 0;
+		sticky = 0;
+	}
+
+	/** Снять залипание с одной кнопки. */
+	public void release(int bit) {
+		sticky &= ~bit;
+		armed &= ~bit;
 	}
 }
