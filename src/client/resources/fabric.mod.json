@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "sticky-buttons",
+  "version": "${version}",
+  "name": "Sticky Buttons",
+  "description": "Возвращает поведение старых версий: кнопка мыши, зажатая перед перезагрузкой ресурсов по F3+T, остаётся зажатой и после неё. Полезно, если вы пользовались этим как автокликером.",
+  "authors": ["Nya2DTyan"],
+  "contact": {
+    "homepage": "https://github.com/Nya2DTyan/sticky-buttons",
+    "sources": "https://github.com/Nya2DTyan/sticky-buttons",
+    "issues": "https://github.com/Nya2DTyan/sticky-buttons/issues"
+  },
+  "license": "MIT",
+  "icon": "assets/sticky-buttons/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["nya2dtyan.stickybuttons.client.StickyButtonsClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "${mc_dep}",
+    "java": ">=25",
+    "fabric-api": "${fabric_api_dep}"
+  }
+}

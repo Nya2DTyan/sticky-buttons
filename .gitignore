@@ -1,0 +1,7 @@
+node_modules/
+build/
+run/
+logs/
+.gradle/
+.DS_Store
+*.log

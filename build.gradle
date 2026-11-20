@@ -1,0 +1,99 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+	id 'maven-publish'
+}
+
+// --- Цель сборки: версия Minecraft -------------------------------------------
+// Один код собирается под несколько версий игры; цель выбирается -Pmc=<версия>,
+// свойства лежат в targets/<версия>.properties.
+def mc = (findProperty("mc") ?: default_mc).toString()
+def targetsDir = file("targets")
+def targetFile = file("${targetsDir}/${mc}.properties")
+if (!targetFile.exists()) {
+	throw new GradleException(
+			"Неизвестная цель сборки '${mc}'. Доступные цели: "
+					+ targetsDir.listFiles()
+							.collect { it.name.replace(".properties", "") }
+							.sort()
+							.join(", "))
+}
+def target = new java.util.Properties()
+targetFile.withInputStream { target.load(it) }
+target.each { key, value -> project.ext.set(key.toString(), value.toString()) }
+
+version = "${mod_version}+${mc}"
+layout.buildDirectory = file("build/${mc}")
+
+repositories {
+}
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"stickybuttons" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+}
+
+// Подстановки в fabric.mod.json раскрываем во всех задачах обработки ресурсов:
+// файл может лежать в клиентском source set, и его обрабатывает отдельная задача.
+tasks.withType(ProcessResources).configureEach {
+	def modVersion = project.version
+	def mcDep = project.mc_dep
+	def apiDep = project.fabric_api_dep
+	inputs.property "version", modVersion
+	inputs.property "mc_dep", mcDep
+	inputs.property "fabric_api_dep", apiDep
+
+	filesMatching("fabric.mod.json") {
+		expand "version": modVersion, "mc_dep": mcDep, "fabric_api_dep": apiDep
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	withSourcesJar()
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+jar {
+	def projectName = project.name
+	inputs.property "projectName", projectName
+
+	from("LICENSE") {
+		rename { "${it}_$projectName" }
+	}
+}
+
+// Служебная задача для стендов из verify/: печатает classpath клиентского
+// source set, чтобы стенды могли загрузить собранный мод без запуска игры.
+tasks.register("printClientClasspath") {
+	def classpath = sourceSets.client.runtimeClasspath
+	doLast {
+		println classpath.asPath
+	}
+}
+
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			from components.java
+		}
+	}
+
+	repositories {
+	}
+}
